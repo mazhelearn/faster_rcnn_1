@@ -4,6 +4,7 @@ import datetime
 import torch
 
 import transforms
+from torch.utils.tensorboard import SummaryWriter
 from network_files import FasterRCNN, FastRCNNPredictor
 from backbone import resnet50_fpn_backbone
 from my_dataset import VOCDataSet
@@ -48,7 +49,7 @@ def main(args):
 
     # 用来保存coco_info的文件
     results_file = "./logs/resnet_results{}.txt".format(datetime.datetime.now().strftime("%Y%m%d-%H%M%S"))
-
+    writer = SummaryWriter(f"logs/")
     data_transform = {
         "train": transforms.Compose([transforms.ToTensor(),
                                      transforms.RandomHorizontalFlip(0.5)]),
@@ -162,6 +163,10 @@ def main(args):
 
         val_map.append(coco_info[1])  # pascal mAP
 
+        #tensorboard
+        writer.add_scalar('Accuracy/test',result_info[0],epoch)
+        writer.add_scalar("lr",lr,epoch)
+        writer.add_scalar("loss",result_info[-2],epoch)
         # save weights
         save_files = {
             'model': model.state_dict(),
