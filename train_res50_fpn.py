@@ -11,7 +11,7 @@ from train_utils import GroupedBatchSampler, create_aspect_ratio_groups
 from train_utils import train_eval_utils as utils
 
 
-def create_model(num_classes, load_pretrain_weights=True):
+def create_model(num_classes, load_pretrain_weights=False):
     # 注意，这里的backbone默认使用的是FrozenBatchNorm2d，即不会去更新bn参数
     # 目的是为了防止batch_size太小导致效果更差(如果显存很小，建议使用默认的FrozenBatchNorm2d)
     # 如果GPU显存很大可以设置比较大的batch_size就可以将norm_layer设置为普通的BatchNorm2d
@@ -76,7 +76,7 @@ def main(args):
 
     # 注意这里的collate_fn是自定义的，因为读取的数据包括image和targets，不能直接使用默认的方法合成batch
     batch_size = args.batch_size
-    nw = min([os.cpu_count(), batch_size if batch_size > 1 else 0, 8])  # number of workers
+    nw = min([os.cpu_count(), batch_size if batch_size > 1 else 0, 6])  # number of workers
     print('Using %g dataloader workers' % nw)
     if train_sampler:
         # 如果按照图片高宽比采样图片，dataloader中需要使用batch_sampler
@@ -137,7 +137,7 @@ def main(args):
     train_loss = []
     learning_rate = []
     val_map = []
-
+    writer = SummaryWriter('.', comment='test')
     for epoch in range(args.start_epoch, args.epochs):
         # train for one epoch, printing every 10 iterations
         mean_loss, lr = utils.train_one_epoch(model, optimizer, train_data_loader,
@@ -181,7 +181,9 @@ def main(args):
     if len(val_map) != 0:
         from plot_curve import plot_map
         plot_map(val_map)
-
+    writer.add_scalar('learning_rate', optimizer.state_dict()['param_groups'][0]['lr'], epoch)
+    writer.add_scalar('Test_loss', train_loss/(batch_size+1), epoch)
+    writer.add_scalar('Test_Accuracy', val_map/(batch_size+1), epoch)
 
 if __name__ == "__main__":
     import argparse
@@ -190,7 +192,7 @@ if __name__ == "__main__":
         description=__doc__)
 
     # 训练设备类型
-    parser.add_argument('--device', default='cuda:1', help='device')
+    parser.add_argument('--device', default='cuda:0', help='device')
     # 训练数据集的根目录(VOCdevkit)
     parser.add_argument('--data-path', default='./', help='dataset')
     # 检测目标类别数(不包含背景)
@@ -216,7 +218,7 @@ if __name__ == "__main__":
                         metavar='W', help='weight decay (default: 1e-4)',
                         dest='weight_decay')
     # 训练的batch size
-    parser.add_argument('--batch_size', default=8, type=int, metavar='N',
+    parser.add_argument('--batch_size', default=6, type=int, metavar='N',
                         help='batch size when training.')
     parser.add_argument('--aspect-ratio-group-factor', default=3, type=int)
     # 是否使用混合精度训练(需要GPU支持混合精度)
