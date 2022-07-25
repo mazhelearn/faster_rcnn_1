@@ -10,7 +10,7 @@ import train_utils.distributed_utils as utils
 
 
 def train_one_epoch(model, optimizer, data_loader, device, epoch,
-                    print_freq=50, warmup=False, scaler=None):
+                    print_freq=50, warmup=False, scaler=None, writer=None):
     model.train()
     metric_logger = utils.MetricLogger(delimiter="  ")
     metric_logger.add_meter('lr', utils.SmoothedValue(window_size=1, fmt='{value:.6f}'))
@@ -40,7 +40,7 @@ def train_one_epoch(model, optimizer, data_loader, device, epoch,
         loss_value = losses_reduced.item()
         # 记录训练损失
         mloss = (mloss * i + loss_value) / (i + 1)  # update mean losses
-
+        writer.add_scalar('train/loss', mloss, i)
         if not math.isfinite(loss_value):  # 当计算的损失为无穷大时停止训练
             print("Loss is {}, stopping training".format(loss_value))
             print(loss_dict_reduced)

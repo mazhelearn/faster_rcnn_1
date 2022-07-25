@@ -9,7 +9,8 @@ from backbone import resnet50_fpn_backbone
 from my_dataset import VOCDataSet
 from train_utils import GroupedBatchSampler, create_aspect_ratio_groups
 from train_utils import train_eval_utils as utils
-
+from torch.utils.tensorboard import SummaryWriter
+from collections import OrderedDict
 
 def create_model(num_classes, load_pretrain_weights=True):
     # 注意，这里的backbone默认使用的是FrozenBatchNorm2d，即不会去更新bn参数
@@ -29,6 +30,15 @@ def create_model(num_classes, load_pretrain_weights=True):
         # 载入预训练模型权重
         # https://download.pytorch.org/models/fasterrcnn_resnet50_fpn_coco-258fb6c6.pth
         weights_dict = torch.load("./backbone/fasterrcnn_resnet50_fpn_coco.pth", map_location='cpu')
+
+        keys = []
+        for k, v in weights_dict.items():
+            if k.startswith('backbone.body.layer'):
+                continue
+            keys.append(k)
+
+        weights_dict = {k: weights_dict[k] for k in keys}
+
         missing_keys, unexpected_keys = model.load_state_dict(weights_dict, strict=False)
         if len(missing_keys) != 0 or len(unexpected_keys) != 0:
             print("missing_keys: ", missing_keys)
@@ -48,7 +58,7 @@ def main(args):
 
     # 用来保存coco_info的文件
     results_file = "./logs/resnet_results{}.txt".format(datetime.datetime.now().strftime("%Y%m%d-%H%M%S"))
-
+    writer= SummaryWriter("./logs/runs")
     data_transform = {
         "train": transforms.Compose([transforms.ToTensor(),
                                      transforms.RandomHorizontalFlip(0.5)]),
@@ -76,7 +86,7 @@ def main(args):
 
     # 注意这里的collate_fn是自定义的，因为读取的数据包括image和targets，不能直接使用默认的方法合成batch
     batch_size = args.batch_size
-    nw = min([os.cpu_count(), batch_size if batch_size > 1 else 0, 8])  # number of workers
+    nw = min([os.cpu_count(), batch_size if batch_size > 1 else 0, 6])  # number of workers
     print('Using %g dataloader workers' % nw)
     if train_sampler:
         # 如果按照图片高宽比采样图片，dataloader中需要使用batch_sampler
@@ -143,7 +153,7 @@ def main(args):
         mean_loss, lr = utils.train_one_epoch(model, optimizer, train_data_loader,
                                               device=device, epoch=epoch,
                                               print_freq=50, warmup=True,
-                                              scaler=scaler)
+                                              scaler=scaler, writer=writer)
         train_loss.append(mean_loss.item())
         learning_rate.append(lr)
 
@@ -153,6 +163,20 @@ def main(args):
         # evaluate on the test dataset
         coco_info = utils.evaluate(model, val_data_set_loader, device=device)
 
+        writer.add_scalar('eval/(AP) @[ IoU=0.50:0.95 | area=   all | maxDets=100 ]', coco_info[0], epoch)
+        writer.add_scalar('eval/(AP) @[ IoU=0.50      | area=   all | maxDets=100 ]', coco_info[1], epoch)
+        writer.add_scalar('eval/(AP) @[ IoU=0.75      | area=   all | maxDets=100 ]', coco_info[2], epoch)
+        writer.add_scalar('eval/(AP) @[ IoU=0.50:0.95 | area= small | maxDets=100 ]', coco_info[3], epoch)
+        writer.add_scalar('eval/(AP) @[ IoU=0.50:0.95 | area=medium | maxDets=100 ]', coco_info[4], epoch)
+        writer.add_scalar('eval/(AP) @[ IoU=0.50:0.95 | area= large | maxDets=100 ]', coco_info[5], epoch)
+        writer.add_scalar('eval/(AR) @[ IoU=0.50:0.95 | area=   all | maxDets=  1 ]', coco_info[6], epoch)
+        writer.add_scalar('eval/(AR) @[ IoU=0.50:0.95 | area=   all | maxDets= 10 ]', coco_info[7], epoch)
+        writer.add_scalar('eval/(AR) @[ IoU=0.50:0.95 | area=   all | maxDets=100 ]', coco_info[8], epoch)
+        writer.add_scalar('eval/(AR) @[ IoU=0.50:0.95 | area= small | maxDets=100 ]', coco_info[9], epoch)
+        writer.add_scalar('eval/(AR) @[ IoU=0.50:0.95 | area=medium | maxDets=100 ]', coco_info[10], epoch)
+        writer.add_scalar('eval/(AR) @[ IoU=0.50:0.95 | area= large | maxDets=100 ]', coco_info[11], epoch)
+        writer.add_scalar('train/loss', mean_loss.item(), epoch)
+        writer.add_scalar('train/lr', lr, epoch)
         # write into txt
         with open(results_file, "a") as f:
             # 写入的数据包括coco指标还有loss和learning rate
@@ -216,7 +240,7 @@ if __name__ == "__main__":
                         metavar='W', help='weight decay (default: 1e-4)',
                         dest='weight_decay')
     # 训练的batch size
-    parser.add_argument('--batch_size', default=8, type=int, metavar='N',
+    parser.add_argument('--batch_size', default=6, type=int, metavar='N',
                         help='batch size when training.')
     parser.add_argument('--aspect-ratio-group-factor', default=3, type=int)
     # 是否使用混合精度训练(需要GPU支持混合精度)
